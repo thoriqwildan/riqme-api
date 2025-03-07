@@ -4,6 +4,7 @@ import { SignUpDto } from './dto/auth-signup.dto';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { SignInDto } from './dto/auth-signin.dto';
 
 @Injectable()
 export class AuthService {
@@ -42,6 +43,53 @@ export class AuthService {
     return token;
   }
 
+  async signIn(
+    signInDto: SignInDto,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    const data = await this.prismaService.user.findFirst({
+      where: {
+        OR: [
+          { email: signInDto.emailOrUsername },
+          { username: signInDto.emailOrUsername },
+        ],
+      },
+    });
+    if (!data) {
+      throw new BadRequestException('Invalid email or username');
+    }
+    const passwordCheck = await bcrypt.compare(
+      signInDto.password,
+      data.password,
+    );
+    if (!passwordCheck) {
+      throw new BadRequestException('Invalid password');
+    }
+    const payload = { sub: data.id, email: data.email, role: data.role };
+    const token = await this.generateToken(payload);
+
+    return token;
+  }
+
+  async refresh(user_id: number) {
+    const data = await this.prismaService.user.findFirst({
+      where: { id: user_id },
+    });
+    if (!data) {
+      throw new BadRequestException('Invalid user');
+    }
+    const payload = { sub: data.id, email: data.email, role: data.role };
+    const token = await this.generateToken(payload);
+    return token;
+  }
+
+  async signOut(user_id: number) {
+    await this.prismaService.user.update({
+      where: { id: user_id },
+      data: { refresh_token: null },
+    });
+  }
+
+  // Tools
   async generateToken(payload: {
     sub: number;
     email: string;
